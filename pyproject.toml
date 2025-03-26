@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dkrutil"
-version = "1.0.0"
+version = "1.0.1"
 description = "Dkrutil is a command-line tool that provides utility functions for managing Docker containers, volumes, and images. It simplifies common tasks like listing running containers, backing up and restoring volumes, and retrieving Docker image tags from Docker Hub."
 authors = ["emerick-biron <emerick.biron@gmail.com>"]
 readme = "README.md"
