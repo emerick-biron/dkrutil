@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "dkrutil"
+version = "1.0.3"
+description = "Dkrutil is a command-line tool that provides utility functions for managing Docker containers, volumes, and images. It simplifies common tasks like listing running containers, backing up and restoring volumes, and retrieving Docker image tags from Docker Hub."
+authors = ["emerick-biron"]
+readme = "README.md"
+homepage = "https://github.com/emerick-biron/dkrutil"
+repository = "https://github.com/emerick-biron/dkrutil.git"
+packages = [{ include = "dkrutil", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+rich-click = "^1.8.8"
+docker = "^7.1.0"
+requests = "^2.32.3"
+rich = "^14.0.0"
+
+[tool.poetry.scripts]
+dkrutil = "dkrutil.cli.dkrutil:dkrutil"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
