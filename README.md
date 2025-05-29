@@ -13,11 +13,26 @@ You can install dkrutil directly from PyPI:
 pip install dkrutil
 ```
 
+For isolated environments and ease of management, you can use `pipx`:
+
+```bash
+pipx install dkrutil
+```
+
 Or install it using [Poetry](https://python-poetry.org/) for development:
 
 ```bash
 poetry install
 ```
+
+> [!WARNING]
+> Some `dkrutil` commands (e.g., **volume backups** and **secrets management**) require **root privileges**.  
+> If you installed `dkrutil` in a user-local directory (e.g., `~/.local/bin` via `pip` or `pipx`), make sure the `dkrutil` binary is > accessible to `root`.  
+> For example:
+> ```
+> sudo cp ~/.local/bin/dkrutil /usr/local/bin/
+> ```
+> This ensures `dkrutil` can be used in scripts or commands requiring `sudo`.
 
 ## Usage
 
