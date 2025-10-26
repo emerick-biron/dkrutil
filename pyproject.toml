@@ -1,6 +1,6 @@
 [project]
 name = "dkrutil"
-version = "1.0.4"
+version = "1.0.5"
 description = "A command-line tool for managing Docker containers, volumes, images, and secrets"
 authors = [{ name = "emerick-biron" }]
 maintainers = [{ name = "emerick-biron" }]
