@@ -6,11 +6,56 @@ import rich_click as click
 from click import BadParameter
 from click import ClickException, UsageError
 from docker.errors import DockerException
+from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
+from rich.text import Text
 
 from .rich import volumes_progress
 from ..core.docker_client import get_docker_client
+
+
+def get_volume_size(client, volume_name: str) -> int:
+    """Get the size of a Docker volume in bytes."""
+    try:
+        result = client.containers.run(
+            image="alpine",
+            command="du -sb /volume",
+            volumes={volume_name: {"bind": "/volume", "mode": "ro"}},
+            remove=True
+        )
+        size_str = result.decode('utf-8').split()[0]
+        return int(size_str)
+    except Exception:
+        return 0
+
+
+def stream_container_logs(container, volume_name: str, live, task, backup_filepath: str = None):
+    """Stream container logs with rolling buffer and optional progress tracking."""
+    log_buffer = []
+    max_lines = 10
+    last_file_size = 0
+
+    for log in container.logs(stream=True, follow=True):
+        log_line = log.decode('utf-8').strip()
+        if log_line:
+            log_buffer.append(log_line)
+            if len(log_buffer) > max_lines:
+                log_buffer.pop(0)
+
+            if backup_filepath and os.path.exists(backup_filepath):
+                current_file_size = os.path.getsize(backup_filepath)
+                size_diff = current_file_size - last_file_size
+                if size_diff > 0:
+                    volumes_progress.update(task, advance=size_diff)
+                    last_file_size = current_file_size
+
+            log_lines = [f"[cyan bold]Processing:[/] {volume_name}"] + [f"[dim]{line}[/dim]" for line in log_buffer]
+            log_text = Text.from_markup("\n".join(log_lines))
+            live.update(Panel(Group(log_text, volumes_progress), border_style="green"))
+
+    live.update(Panel(volumes_progress, border_style="green"))
+    return last_file_size
 
 
 @click.group(help="Manage Docker volumes")
@@ -53,10 +98,23 @@ def backup(backup_directory: str, ignore: list[str], include: list[str], verbose
     date_suffix = datetime.now().strftime("%Y-%m-%d")
 
     click.secho(f"Backing up Docker volumes to {backup_directory}", fg="blue", bold=True)
+    click.secho("Calculating volumes sizes...", fg="blue")
+
+    volume_sizes = {}
+    for vol_name in selected_volumes:
+        volume_sizes[vol_name] = get_volume_size(client, vol_name)
+
+    total_size = sum(volume_sizes.values())
 
     with Live(Panel(volumes_progress, border_style="green"), transient=True) as live:
-        task = volumes_progress.add_task("Backing up volumes", total=len(selected_volumes))
+        task = volumes_progress.add_task(
+            "Backing up volumes",
+            total=total_size if total_size > 0 else 1,
+            current_volume=0,
+            total_volumes=len(selected_volumes)
+        )
 
+        volume_count = 0
         for volume_name in all_volumes:
             if volume_name not in selected_volumes:
                 if verbose:
@@ -64,22 +122,39 @@ def backup(backup_directory: str, ignore: list[str], include: list[str], verbose
                 continue
 
             backup_filename = f"{volume_name}_{date_suffix}.tar.gz"
+            backup_filepath = os.path.join(backup_directory, backup_filename)
+            volume_size = volume_sizes.get(volume_name, 0)
+            volume_count += 1
+            volumes_progress.update(task, current_volume=volume_count)
 
             try:
-                client.containers.run(
+                container = client.containers.run(
                     image="alpine",
-                    command=f"tar czf /backup/{backup_filename} -C /volume .",
+                    command=f"tar cvzf /backup/{backup_filename} -C /volume .",
                     volumes={
                         volume_name: {"bind": "/volume", "mode": "ro"},
                         backup_directory: {"bind": "/backup", "mode": "rw"},
                     },
-                    remove=True
+                    detach=True
                 )
-                live.console.print(f"[green bold]Backed up:[/] {volume_name}")
+
+                last_file_size = stream_container_logs(container, volume_name, live, task, backup_filepath)
+
+                result = container.wait()
+                container.remove()
+
+                if volume_size > 0:
+                    volumes_progress.update(task, advance=max(0, volume_size - last_file_size))
+
+                if result['StatusCode'] == 0:
+                    live.console.print(f"[green bold]Backed up:[/] {volume_name}")
+                else:
+                    live.console.print(f"[red bold]Error:[/]     {volume_name} - Exit code {result['StatusCode']}",
+                                       highlight=False)
             except Exception as e:
                 live.console.print(f"[red bold]Error:[/]     {volume_name} - {e}", highlight=False)
-            finally:
-                volumes_progress.update(task, advance=1)
+                if volume_size > 0:
+                    volumes_progress.update(task, advance=volume_size)
 
     click.secho("Finished Successfully", fg="green", bold=True)
 
@@ -110,29 +185,53 @@ def restore(backup_directory: str):
 
     click.secho(f"Restoring Docker volumes from {backup_directory}", fg="blue")
 
+    total_size = sum(os.path.getsize(os.path.join(backup_directory, f)) for f in backup_files)
+
     with Live(Panel(volumes_progress, border_style="green"), transient=True) as live:
-        task = volumes_progress.add_task("Restoring volumes", total=len(backup_files))
+        task = volumes_progress.add_task(
+            "Restoring volumes",
+            total=total_size if total_size > 0 else 1,
+            current_volume=0,
+            total_volumes=len(backup_files)
+        )
+
+        volume_count = 0
         for backup_file in backup_files:
             volume_name = backup_file.rsplit("_", 1)[0]
+            backup_filepath = os.path.join(backup_directory, backup_file)
+            file_size = os.path.getsize(backup_filepath)
+            volume_count += 1
+            volumes_progress.update(task, current_volume=volume_count)
 
             existing_volumes = [v.name for v in client.volumes.list()]
             if volume_name not in existing_volumes:
                 client.volumes.create(name=volume_name)
 
             try:
-                client.containers.run(
+                container = client.containers.run(
                     image="alpine",
-                    command=f"tar xzf /backup/{backup_file} -C /volume",
+                    command=f"tar xvzf /backup/{backup_file} -C /volume",
                     volumes={
                         volume_name: {"bind": "/volume", "mode": "rw"},
                         backup_directory: {"bind": "/backup", "mode": "ro"},
                     },
-                    remove=True
+                    detach=True
                 )
-                live.console.print(f"[green bold]Restored:[/] {volume_name}")
+
+                stream_container_logs(container, volume_name, live, task)
+
+                result = container.wait()
+                container.remove()
+
+                volumes_progress.update(task, advance=file_size)
+
+                if result['StatusCode'] == 0:
+                    live.console.print(f"[green bold]Restored:[/] {volume_name}")
+                else:
+                    live.console.print(f"[red bold]Error:[/]    {volume_name} - Exit code {result['StatusCode']}",
+                                       highlight=False)
             except Exception as e:
                 live.console.print(f"[red bold]Error:[/]    {volume_name} - {e}", highlight=False)
-            finally:
-                volumes_progress.update(task, advance=1)
+                volumes_progress.update(task, advance=file_size)
 
     click.secho("Finished Successfully", fg="green", bold=True)
