@@ -19,10 +19,10 @@ For isolated environments and ease of management, you can use `pipx`:
 pipx install dkrutil
 ```
 
-Or install it using [Poetry](https://python-poetry.org/) for development:
+Or install it using [uv](https://github.com/astral-sh/uv) for development:
 
 ```bash
-poetry install
+uv pip install dkrutil
 ```
 
 > [!WARNING]
@@ -126,15 +126,21 @@ git clone https://github.com/emerick-biron/dkrutil.git
 cd dkrutil
 ```
 
-Install dependencies:
+Install dependencies with uv:
 
 ```bash
-poetry install
+uv pip install -e .
 ```
 
 Run the tool locally:
 
 ```bash
-poetry run dkrutil --help
+dkrutil --help
+```
+
+Build the package:
+
+```bash
+uv build
 ```
 
