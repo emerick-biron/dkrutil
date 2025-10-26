@@ -15,19 +15,27 @@ from .rich import volumes_progress
 from ..core.docker_client import get_docker_client
 
 
-def get_volume_size(client, volume_name: str) -> int:
-    """Get the size of a Docker volume in bytes."""
+def get_volumes_sizes(client, volume_names: list[str]) -> dict[str, int]:
+    """Get sizes of multiple Docker volumes efficiently using docker system df."""
     try:
-        result = client.containers.run(
-            image="alpine",
-            command="du -sb /volume",
-            volumes={volume_name: {"bind": "/volume", "mode": "ro"}},
-            remove=True
-        )
-        size_str = result.decode('utf-8').split()[0]
-        return int(size_str)
+        df_data = client.df()
+        volumes_data = df_data.get('Volumes', [])
+
+        size_map = {}
+        for vol_data in volumes_data:
+            vol_name = vol_data.get('Name')
+            if vol_name in volume_names:
+                usage_data = vol_data.get('UsageData', {})
+                size = usage_data.get('Size', 0) if usage_data else 0
+                size_map[vol_name] = size if size else 0
+
+        for vol_name in volume_names:
+            if vol_name not in size_map:
+                size_map[vol_name] = 0
+
+        return size_map
     except Exception:
-        return 0
+        return {vol_name: 0 for vol_name in volume_names}
 
 
 def stream_container_logs(container, volume_name: str, live, task, backup_filepath: str = None):
@@ -36,6 +44,8 @@ def stream_container_logs(container, volume_name: str, live, task, backup_filepa
     max_lines = 10
     last_file_size = 0
 
+    processing_text = f"[cyan bold]Processing:[/] {volume_name}"
+    live.update(Panel(Group(processing_text, volumes_progress), border_style="green"))
     for log in container.logs(stream=True, follow=True):
         log_line = log.decode('utf-8').strip()
         if log_line:
@@ -50,7 +60,7 @@ def stream_container_logs(container, volume_name: str, live, task, backup_filepa
                     volumes_progress.update(task, advance=size_diff)
                     last_file_size = current_file_size
 
-            log_lines = [f"[cyan bold]Processing:[/] {volume_name}"] + [f"[dim]{line}[/dim]" for line in log_buffer]
+            log_lines = [processing_text] + [f"[dim]{line}[/dim]" for line in log_buffer]
             log_text = Text.from_markup("\n".join(log_lines))
             live.update(Panel(Group(log_text, volumes_progress), border_style="green"))
 
@@ -100,10 +110,7 @@ def backup(backup_directory: str, ignore: list[str], include: list[str], verbose
     click.secho(f"Backing up Docker volumes to {backup_directory}", fg="blue", bold=True)
     click.secho("Calculating volumes sizes...", fg="blue")
 
-    volume_sizes = {}
-    for vol_name in selected_volumes:
-        volume_sizes[vol_name] = get_volume_size(client, vol_name)
-
+    volume_sizes = get_volumes_sizes(client, selected_volumes)
     total_size = sum(volume_sizes.values())
 
     with Live(Panel(volumes_progress, border_style="green"), transient=True) as live:
