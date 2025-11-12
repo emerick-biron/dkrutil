@@ -27,7 +27,7 @@ uv pip install dkrutil
 
 > [!WARNING]
 > Some `dkrutil` commands (e.g., **volume backups** and **secrets management**) require **root privileges**.  
-> If you installed `dkrutil` in a user-local directory (e.g., `~/.local/bin` via `pip` or `pipx`), make sure the `dkrutil` binary is > accessible to `root`.  
+> If you installed `dkrutil` in a user-local directory (e.g., `~/.local/bin` via `pip` or `pipx`), make sure the `dkrutil` binary is accessible to `root`.  
 > For this add this alias to your shell configuration (e.g., `~/.bashrc` or `~/.zshrc`):
 > ```bash
 > alias dkrutil='sudo -E $(echo ~/.local/bin/dkrutil)'
