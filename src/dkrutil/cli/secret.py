@@ -6,6 +6,7 @@ import docker
 import rich_click as click
 from click import ClickException
 from docker.errors import DockerException
+from rich.prompt import Prompt
 
 from ..core.docker_client import get_docker_client
 
@@ -16,18 +17,24 @@ def secret():
 
 
 @secret.command(
-    help="Create a secret stored in a Docker volume from a file or from standard input"
+    help="Create a secret stored in a Docker volume from a file, stdin, or interactive prompt"
 )
 @click.argument("name", required=True)
 @click.argument("source", required=False, metavar="FILE|-")
+@click.option("-p", "--password", "password_mode", is_flag=True, help="Force interactive password prompt")
 @click.pass_context
-def create(ctx, name: str, source: str | None):
+def create(ctx, name: str, source: str | None, password_mode: bool):
     try:
         client = get_docker_client()
     except DockerException as exc:
         raise ClickException(str(exc))
 
-    if source in (None, "-"):
+    if password_mode:
+        secret_content = Prompt.ask(
+            "Enter secret",
+            password=True
+        ).strip()
+    elif source in (None, "-"):
         secret_content = sys.stdin.read().strip()
     else:
         if not os.path.isfile(source):
